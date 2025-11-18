@@ -1,0 +1,3 @@
+version: 1
+deploy:
+  artifact: publish.zip

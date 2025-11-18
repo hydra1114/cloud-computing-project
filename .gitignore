@@ -52,3 +52,28 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Frontend
+node_modules/
+dist/
+.env
+.env.local
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AWS
+.elasticbeanstalk/
+.ebextensions-backup/
+publish/
+*.zip
