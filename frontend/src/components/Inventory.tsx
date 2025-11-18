@@ -13,7 +13,7 @@ export const Inventory: React.FC = () => {
   const [formData, setFormData] = useState<CreateItemLocationDto>({
     itemId: 0,
     locationId: 0,
-    quantity: 0,
+    quantity: 1,
   });
   const [filterLocation, setFilterLocation] = useState<number | null>(null);
   const [filterItem, setFilterItem] = useState<number | null>(null);
@@ -44,26 +44,54 @@ export const Inventory: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form data
+    if (formData.itemId === 0 || formData.locationId === 0) {
+      setError('Please select both an item and a location');
+      return;
+    }
+    
+    if (formData.quantity < 1) {
+      setError('Quantity must be at least 1');
+      return;
+    }
+    
     try {
+      setError(null);
+      console.log('Submitting item location:', formData);
+      
       if (editingItemLocation) {
         await itemLocationsApi.update(editingItemLocation.id, {
           ...editingItemLocation,
           quantity: formData.quantity,
         });
       } else {
-        await itemLocationsApi.create(formData);
+        const response = await itemLocationsApi.create(formData);
+        console.log('Item location created:', response.data);
       }
       setShowForm(false);
       setEditingItemLocation(null);
-      setFormData({ itemId: 0, locationId: 0, quantity: 0 });
-      loadData();
+      setFormData({ itemId: 0, locationId: 0, quantity: 1 });
+      await loadData();
     } catch (err: any) {
+      console.error('Error creating item location:', err);
+      console.error('Error response:', err.response);
+      
+      let errorMessage = 'Failed to save inventory record';
+      
       if (err.response?.data) {
-        setError(err.response.data);
-      } else {
-        setError('Failed to save inventory record');
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.title) {
+          errorMessage = err.response.data.title;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
       }
-      console.error(err);
+      
+      setError(errorMessage);
     }
   };
 
@@ -92,7 +120,8 @@ export const Inventory: React.FC = () => {
   const handleCancel = () => {
     setShowForm(false);
     setEditingItemLocation(null);
-    setFormData({ itemId: 0, locationId: 0, quantity: 0 });
+    setFormData({ itemId: 0, locationId: 0, quantity: 1 });
+    setError(null);
   };
 
   const getFilteredItemLocations = () => {
@@ -149,7 +178,7 @@ export const Inventory: React.FC = () => {
                   <label>Item *</label>
                   <select
                     value={formData.itemId}
-                    onChange={(e) => setFormData({ ...formData, itemId: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, itemId: parseInt(e.target.value) || 0 })}
                     required
                     disabled={!!editingItemLocation}
                   >
@@ -165,7 +194,7 @@ export const Inventory: React.FC = () => {
                   <label>Location *</label>
                   <select
                     value={formData.locationId}
-                    onChange={(e) => setFormData({ ...formData, locationId: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, locationId: parseInt(e.target.value) || 0 })}
                     required
                     disabled={!!editingItemLocation}
                   >
@@ -181,9 +210,9 @@ export const Inventory: React.FC = () => {
                   <label>Quantity *</label>
                   <input
                     type="number"
-                    min="0"
+                    min="1"
                     value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                     required
                   />
                 </div>
