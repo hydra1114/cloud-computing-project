@@ -5,7 +5,7 @@
 1. AWS Account
 2. AWS CLI installed and configured
 3. EB CLI installed: `pip install awsebcli`
-4. .NET 8.0 SDK
+4. .NET 9.0 SDK
 5. Node.js 18+
 
 ## Backend Deployment to Elastic Beanstalk
@@ -20,14 +20,16 @@ eb init
 Select:
 - Region: Your preferred region (e.g., us-east-1)
 - Application name: inventory-api
-- Platform: .NET Core on Linux
+- Platform: .NET 9 running on 64bit Amazon Linux 2023
 - CodeCommit: No
 
 ### Step 2: Create Environment
 
 ```powershell
+# Create a single-instance environment to stay within Free Tier (avoids Load Balancer costs)
 eb create inventory-api-prod `
   --instance-type t3.micro `
+  --single `
   --database `
   --database.engine postgres `
   --database.size 5 `
@@ -209,6 +211,8 @@ aws rds create-db-instance `
   --master-username admin `
   --master-user-password YOUR_PASSWORD `
   --allocated-storage 20 `
+  --storage-type gp2 `
+  --no-multi-az `
   --vpc-security-group-ids sg-xxxxxxxx `
   --db-subnet-group-name default `
   --backup-retention-period 7 `
@@ -247,7 +251,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 9.0.x
       
       - name: Publish
         run: |
@@ -320,11 +324,11 @@ aws cloudwatch put-metric-alarm `
 
 ## Cost Optimization
 
-- Use t3.micro for development (included in free tier)
-- Enable auto-scaling based on load
-- Use CloudFront for caching
-- Set up S3 lifecycle policies
-- Schedule non-production environments to stop during off-hours
+- **Use Single Instance Type:** The `--single` flag in `eb create` avoids creating an Application Load Balancer (ALB), which can be costly if the free tier limit (750 hours/month) is exceeded.
+- **Instance Types:** Use `t3.micro` for EC2 and `db.t3.micro` for RDS (Free Tier eligible).
+- **Database:** Ensure `Multi-AZ` is disabled for development databases to avoid doubling costs.
+- **Storage:** Clean up old EB application versions and unused S3 buckets.
+- **Scheduling:** Schedule non-production environments to stop during off-hours using AWS Instance Scheduler or simple Lambda scripts.
 
 ## Security Best Practices
 

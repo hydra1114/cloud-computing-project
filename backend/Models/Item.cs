@@ -10,7 +10,11 @@ namespace InventoryApi.Models
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
+        // Foreign Key
+        public int UserId { get; set; }
+
         // Navigation property
+        public User? User { get; set; }
         public ICollection<ItemLocation> ItemLocations { get; set; } = new List<ItemLocation>();
     }
 }

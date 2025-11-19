@@ -11,7 +11,11 @@ namespace InventoryApi.Models
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
+        // Foreign Key
+        public int UserId { get; set; }
+
         // Navigation properties
+        public User? User { get; set; }
         public Location? ParentLocation { get; set; }
         public ICollection<Location> ChildLocations { get; set; } = new List<Location>();
         public ICollection<ItemLocation> ItemLocations { get; set; } = new List<ItemLocation>();

@@ -1,12 +1,15 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using InventoryApi.Data;
 using InventoryApi.Models;
+using System.Security.Claims;
 
 namespace InventoryApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ItemsController : ControllerBase
     {
         private readonly InventoryContext _context;
@@ -20,7 +23,9 @@ namespace InventoryApi.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Item>>> GetItems()
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             return await _context.Items
+                .Where(i => i.UserId == userId)
                 .Include(i => i.ItemLocations)
                 .ThenInclude(il => il.Location)
                 .ToListAsync();
@@ -30,10 +35,11 @@ namespace InventoryApi.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Item>> GetItem(int id)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             var item = await _context.Items
                 .Include(i => i.ItemLocations)
                 .ThenInclude(il => il.Location)
-                .FirstOrDefaultAsync(i => i.Id == id);
+                .FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId);
 
             if (item == null)
             {
@@ -47,6 +53,8 @@ namespace InventoryApi.Controllers
         [HttpPost]
         public async Task<ActionResult<Item>> CreateItem(Item item)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            item.UserId = userId;
             item.CreatedAt = DateTime.UtcNow;
             item.UpdatedAt = DateTime.UtcNow;
 
@@ -65,7 +73,9 @@ namespace InventoryApi.Controllers
                 return BadRequest();
             }
 
-            var existingItem = await _context.Items.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var existingItem = await _context.Items.FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId);
+            
             if (existingItem == null)
             {
                 return NotFound();
@@ -100,7 +110,9 @@ namespace InventoryApi.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteItem(int id)
         {
-            var item = await _context.Items.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var item = await _context.Items.FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId);
+            
             if (item == null)
             {
                 return NotFound();

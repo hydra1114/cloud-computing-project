@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using InventoryApi.Data;
 using System.Text.Json.Serialization;
@@ -22,10 +25,15 @@ builder.Services.AddDbContext<InventoryContext>(options =>
         // Use in-memory database for development if no connection string is provided
         options.UseInMemoryDatabase("InventoryDb");
     }
-    else if (connectionString.Contains("Host=") || connectionString.Contains("Server=") && connectionString.Contains("5432"))
+    else if (connectionString.Contains("Host=") || (connectionString.Contains("Server=") && connectionString.Contains("5432")))
     {
         // PostgreSQL for AWS RDS
         options.UseNpgsql(connectionString);
+    }
+    else if (connectionString.Contains("3306") || connectionString.Contains("Uid=") || connectionString.Contains("User Id="))
+    {
+        // MySQL for local debugging
+        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
     }
     else
     {
@@ -51,6 +59,26 @@ builder.Services.AddCors(options =>
         });
 });
 
+// Configure JWT Authentication
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -66,6 +94,7 @@ app.UseCors("AllowReactApp");
 // Disable HTTPS redirection for local development
 // app.UseHttpsRedirection();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

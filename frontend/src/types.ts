@@ -54,3 +54,20 @@ export interface CreateItemLocationDto {
   locationId: number;
   quantity: number;
 }
+
+export interface LoginDto {
+  username: string;
+  password: string;
+}
+
+export interface RegisterDto {
+  username: string;
+  email: string;
+  password: string;
+}
+
+export interface AuthResponseDto {
+  token: string;
+  username: string;
+  email: string;
+}

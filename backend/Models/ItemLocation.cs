@@ -10,7 +10,7 @@ namespace InventoryApi.Models
         public DateTime UpdatedAt { get; set; }
 
         // Navigation properties
-        public Item Item { get; set; } = null!;
-        public Location Location { get; set; } = null!;
+        public Item? Item { get; set; }
+        public Location? Location { get; set; }
     }
 }

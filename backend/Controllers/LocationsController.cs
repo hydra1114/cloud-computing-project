@@ -1,12 +1,15 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using InventoryApi.Data;
 using InventoryApi.Models;
+using System.Security.Claims;
 
 namespace InventoryApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class LocationsController : ControllerBase
     {
         private readonly InventoryContext _context;
@@ -20,7 +23,9 @@ namespace InventoryApi.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Location>>> GetLocations()
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             return await _context.Locations
+                .Where(l => l.UserId == userId)
                 .Include(l => l.ParentLocation)
                 .Include(l => l.ChildLocations)
                 .Include(l => l.ItemLocations)
@@ -32,12 +37,13 @@ namespace InventoryApi.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Location>> GetLocation(int id)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             var location = await _context.Locations
                 .Include(l => l.ParentLocation)
                 .Include(l => l.ChildLocations)
                 .Include(l => l.ItemLocations)
                 .ThenInclude(il => il.Item)
-                .FirstOrDefaultAsync(l => l.Id == id);
+                .FirstOrDefaultAsync(l => l.Id == id && l.UserId == userId);
 
             if (location == null)
             {
@@ -51,6 +57,8 @@ namespace InventoryApi.Controllers
         [HttpPost]
         public async Task<ActionResult<Location>> CreateLocation(Location location)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            location.UserId = userId;
             location.CreatedAt = DateTime.UtcNow;
             location.UpdatedAt = DateTime.UtcNow;
 
@@ -69,7 +77,9 @@ namespace InventoryApi.Controllers
                 return BadRequest();
             }
 
-            var existingLocation = await _context.Locations.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var existingLocation = await _context.Locations.FirstOrDefaultAsync(l => l.Id == id && l.UserId == userId);
+            
             if (existingLocation == null)
             {
                 return NotFound();
@@ -105,7 +115,9 @@ namespace InventoryApi.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteLocation(int id)
         {
-            var location = await _context.Locations.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var location = await _context.Locations.FirstOrDefaultAsync(l => l.Id == id && l.UserId == userId);
+            
             if (location == null)
             {
                 return NotFound();

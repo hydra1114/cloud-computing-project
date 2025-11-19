@@ -13,10 +13,22 @@ namespace InventoryApi.Data
         public DbSet<Item> Items { get; set; } = null!;
         public DbSet<Location> Locations { get; set; } = null!;
         public DbSet<ItemLocation> ItemLocations { get; set; } = null!;
+        public DbSet<User> Users { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // Configure User
+            modelBuilder.Entity<User>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Email).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.PasswordHash).IsRequired();
+                entity.HasIndex(e => e.Username).IsUnique();
+                entity.HasIndex(e => e.Email).IsUnique();
+            });
 
             // Configure Item
             modelBuilder.Entity<Item>(entity =>
@@ -26,6 +38,11 @@ namespace InventoryApi.Data
                 entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.Description).HasMaxLength(1000);
                 entity.Property(e => e.SKU).HasMaxLength(50);
+
+                entity.HasOne(e => e.User)
+                    .WithMany(e => e.Items)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             // Configure Location
@@ -36,6 +53,11 @@ namespace InventoryApi.Data
                 entity.Property(e => e.Description).HasMaxLength(1000);
                 entity.Property(e => e.Address).HasMaxLength(500);
                 entity.Property(e => e.LocationType).HasMaxLength(50);
+
+                entity.HasOne(e => e.User)
+                    .WithMany(e => e.Locations)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
 
                 // Self-referencing relationship
                 entity.HasOne(e => e.ParentLocation)

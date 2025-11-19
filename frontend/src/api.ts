@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Item, Location, ItemLocation, CreateItemDto, CreateLocationDto, CreateItemLocationDto } from './types';
+import { Item, Location, ItemLocation, CreateItemDto, CreateLocationDto, CreateItemLocationDto, LoginDto, RegisterDto, AuthResponseDto } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -9,6 +9,20 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Add a request interceptor to include the token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // Items API
 export const itemsApi = {
@@ -37,4 +51,10 @@ export const itemLocationsApi = {
   create: (itemLocation: CreateItemLocationDto) => api.post<ItemLocation>('/itemlocations', itemLocation),
   update: (id: number, itemLocation: ItemLocation) => api.put(`/itemlocations/${id}`, itemLocation),
   delete: (id: number) => api.delete(`/itemlocations/${id}`),
+};
+
+// Auth API
+export const authApi = {
+  login: (data: LoginDto) => api.post<AuthResponseDto>('/auth/login', data),
+  register: (data: RegisterDto) => api.post<AuthResponseDto>('/auth/register', data),
 };

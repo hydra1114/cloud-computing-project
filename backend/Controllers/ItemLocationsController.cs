@@ -1,12 +1,15 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using InventoryApi.Data;
 using InventoryApi.Models;
+using System.Security.Claims;
 
 namespace InventoryApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ItemLocationsController : ControllerBase
     {
         private readonly InventoryContext _context;
@@ -20,9 +23,11 @@ namespace InventoryApi.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ItemLocation>>> GetItemLocations()
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             return await _context.ItemLocations
                 .Include(il => il.Item)
                 .Include(il => il.Location)
+                .Where(il => il.Item.UserId == userId)
                 .ToListAsync();
         }
 
@@ -30,10 +35,11 @@ namespace InventoryApi.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<ItemLocation>> GetItemLocation(int id)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
             var itemLocation = await _context.ItemLocations
                 .Include(il => il.Item)
                 .Include(il => il.Location)
-                .FirstOrDefaultAsync(il => il.Id == id);
+                .FirstOrDefaultAsync(il => il.Id == id && il.Item.UserId == userId);
 
             if (itemLocation == null)
             {
@@ -47,6 +53,15 @@ namespace InventoryApi.Controllers
         [HttpGet("ByLocation/{locationId}")]
         public async Task<ActionResult<IEnumerable<ItemLocation>>> GetItemLocationsByLocation(int locationId)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            
+            // Verify location belongs to user
+            var location = await _context.Locations.FirstOrDefaultAsync(l => l.Id == locationId && l.UserId == userId);
+            if (location == null)
+            {
+                return NotFound("Location not found or access denied.");
+            }
+
             return await _context.ItemLocations
                 .Include(il => il.Item)
                 .Include(il => il.Location)
@@ -58,6 +73,15 @@ namespace InventoryApi.Controllers
         [HttpGet("ByItem/{itemId}")]
         public async Task<ActionResult<IEnumerable<ItemLocation>>> GetItemLocationsByItem(int itemId)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+
+            // Verify item belongs to user
+            var item = await _context.Items.FirstOrDefaultAsync(i => i.Id == itemId && i.UserId == userId);
+            if (item == null)
+            {
+                return NotFound("Item not found or access denied.");
+            }
+
             return await _context.ItemLocations
                 .Include(il => il.Item)
                 .Include(il => il.Location)
@@ -69,18 +93,20 @@ namespace InventoryApi.Controllers
         [HttpPost]
         public async Task<ActionResult<ItemLocation>> CreateItemLocation(ItemLocation itemLocation)
         {
-            // Check if item exists
-            var itemExists = await _context.Items.AnyAsync(i => i.Id == itemLocation.ItemId);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+
+            // Check if item exists and belongs to user
+            var itemExists = await _context.Items.AnyAsync(i => i.Id == itemLocation.ItemId && i.UserId == userId);
             if (!itemExists)
             {
-                return BadRequest("Item does not exist.");
+                return BadRequest("Item does not exist or access denied.");
             }
 
-            // Check if location exists
-            var locationExists = await _context.Locations.AnyAsync(l => l.Id == itemLocation.LocationId);
+            // Check if location exists and belongs to user
+            var locationExists = await _context.Locations.AnyAsync(l => l.Id == itemLocation.LocationId && l.UserId == userId);
             if (!locationExists)
             {
-                return BadRequest("Location does not exist.");
+                return BadRequest("Location does not exist or access denied.");
             }
 
             // Check if this item-location combination already exists
@@ -110,7 +136,11 @@ namespace InventoryApi.Controllers
                 return BadRequest();
             }
 
-            var existingItemLocation = await _context.ItemLocations.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var existingItemLocation = await _context.ItemLocations
+                .Include(il => il.Item)
+                .FirstOrDefaultAsync(il => il.Id == id && il.Item.UserId == userId);
+
             if (existingItemLocation == null)
             {
                 return NotFound();
@@ -142,7 +172,11 @@ namespace InventoryApi.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteItemLocation(int id)
         {
-            var itemLocation = await _context.ItemLocations.FindAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+            var itemLocation = await _context.ItemLocations
+                .Include(il => il.Item)
+                .FirstOrDefaultAsync(il => il.Id == id && il.Item.UserId == userId);
+
             if (itemLocation == null)
             {
                 return NotFound();

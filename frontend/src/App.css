@@ -413,6 +413,53 @@ tr:hover {
   }
 }
 
+/* Auth */
+.auth-container {
+  max-width: 400px;
+  margin: 4rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .auth-container {
+    background: #2a2a2a;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+}
+
+.auth-container h2 {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-container button {
+  width: 100%;
+  background-color: #1976d2;
+  color: white;
+  margin-top: 1rem;
+}
+
+.auth-container button:hover {
+  background-color: #1565c0;
+}
+
+.auth-container p {
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.auth-container a {
+  color: #1976d2;
+  text-decoration: none;
+}
+
+.auth-container a:hover {
+  text-decoration: underline;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .container {
