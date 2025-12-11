@@ -49,6 +49,7 @@ builder.Services.AddCors(options =>
         policy =>
         {
             policy.WithOrigins(
+                "https://cloudfront.amazonaws.com/2020-05-31/distribution/E17NROP34P5A0W",
                 "http://localhost:3000",
                 "http://localhost:5173",
                 "http://localhost:5174"

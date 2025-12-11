@@ -1,76 +1,115 @@
-# AWS Deployment Guide
+# AWS Deployment Guide (EC2 + Docker)
 
 ## Prerequisites
 
 1. AWS Account
 2. AWS CLI installed and configured
-3. EB CLI installed: `pip install awsebcli`
+3. Docker Desktop installed
 4. .NET 9.0 SDK
 5. Node.js 18+
 
-## Backend Deployment to Elastic Beanstalk
+## Backend Deployment: Docker on EC2
 
-### Step 1: Initialize EB Application
+This guide uses Amazon Elastic Container Registry (ECR) to store your Docker image and an EC2 instance to run it.
+
+### Step 1: Create ECR Repository
+
+```powershell
+# Create repository
+aws ecr create-repository --repository-name inventory-api --region us-east-1
+
+# Authenticate Docker to ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+```
+
+### Step 2: Build and Push Image
 
 ```powershell
 cd backend
-eb init
+
+# Build image
+docker build -t inventory-api .
+
+# Tag image
+docker tag inventory-api:latest YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/inventory-api:latest
+
+# Push to ECR
+docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/inventory-api:latest
 ```
 
-Select:
-- Region: Your preferred region (e.g., us-east-1)
-- Application name: inventory-api
-- Platform: .NET 9 running on 64bit Amazon Linux 2023
-- CodeCommit: No
+### Step 3: Launch EC2 Instance
 
-### Step 2: Create Environment
+1. Go to AWS Console > EC2 > Launch Instance.
+2. **Name:** `inventory-backend`
+3. **AMI:** Amazon Linux 2023 AMI (Free tier eligible).
+4. **Instance Type:** `t3.micro` (Free tier eligible).
+5. **Key Pair:** Create a new key pair (e.g., `inventory-key.pem`) and download it.
+6. **Network Settings:**
+   - Allow SSH traffic from "My IP".
+   - Allow HTTP traffic from the internet.
+   - Allow HTTPS traffic from the internet.
+7. **IAM Instance Profile:**
+   - Create a new IAM Role for EC2 with `AmazonEC2ContainerRegistryReadOnly` policy attached.
+   - Attach this role to the instance in Advanced Details.
+8. Launch Instance.
+
+### Step 4: Configure EC2 Instance
+
+Connect to your instance using SSH:
 
 ```powershell
-# Create a single-instance environment to stay within Free Tier (avoids Load Balancer costs)
-eb create inventory-api-prod `
-  --instance-type t3.micro `
-  --single `
-  --database `
-  --database.engine postgres `
-  --database.size 5 `
-  --database.instance db.t3.micro `
-  --database.username admin
+ssh -i "path/to/inventory-key.pem" ec2-user@YOUR_EC2_PUBLIC_IP
 ```
 
-You'll be prompted for a database password. Save this securely.
+Inside the EC2 instance, run:
 
-### Step 3: Configure Environment Variables
+```bash
+# Update system
+sudo dnf update -y
 
-```powershell
-eb setenv `
-  ASPNETCORE_ENVIRONMENT=Production `
-  ConnectionStrings__DefaultConnection="Host=YOUR_RDS_ENDPOINT;Database=inventory;Username=admin;Password=YOUR_PASSWORD"
+# Install Docker
+sudo dnf install docker -y
+sudo service docker start
+sudo usermod -a -G docker ec2-user
+
+# Enable Docker to start on boot
+sudo systemctl enable docker
+
+# Log out and log back in to pick up group changes
+exit
 ```
 
-### Step 4: Deploy Application
+Reconnect via SSH, then authenticate Docker to ECR:
 
-```powershell
-# Build and publish
-dotnet publish -c Release -o publish
-
-# Create deployment package
-cd publish
-Compress-Archive -Path * -DestinationPath ..\deploy.zip -Force
-cd ..
-
-# Deploy to EB
-eb deploy
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
 ```
 
-### Step 5: Configure CORS
+### Step 5: Run Application
 
-After deployment, update the CORS policy in your code to include the EB URL:
+Run the container on the EC2 instance. Note: You need your RDS connection string here.
+
+```bash
+docker run -d \
+  -p 80:8080 \
+  --name inventory-api \
+  --restart always \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ConnectionStrings__DefaultConnection="Host=YOUR_RDS_ENDPOINT;Database=inventory;Username=admin;Password=YOUR_PASSWORD" \
+  YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/inventory-api:latest
+```
+
+*Note: The backend listens on port 8080 inside the container (default for .NET 8+), mapped to port 80 on the host.*
+
+### Step 6: Configure CORS
+
+After deployment, update the CORS policy in your code to include the EC2 Public DNS/IP:
 
 ```csharp
 policy.WithOrigins(
     "http://localhost:3000",
     "https://your-cloudfront-domain.cloudfront.net",
-    "https://inventory-api-prod.us-east-1.elasticbeanstalk.com"
+    "http://YOUR_EC2_PUBLIC_DNS"
 )
 ```
 
@@ -122,68 +161,23 @@ aws s3api put-bucket-policy `
 cd frontend
 
 # Update API URL in .env
-"VITE_API_URL=https://inventory-api-prod.us-east-1.elasticbeanstalk.com/api" | Out-File -FilePath .env -Encoding utf8
+"VITE_API_URL=http://YOUR_EC2_PUBLIC_DNS/api" | Out-File -FilePath .env -Encoding utf8
 
 # Build
 npm install
 npm run build
 
 # Deploy to S3
-aws s3 sync dist/ s3://$bucketName --delete --acl public-read
+aws s3 sync dist/ s3://$bucketName
 ```
 
 ### Step 4: Create CloudFront Distribution
 
 ```powershell
-# Create distribution (this returns a JSON with DistributionId)
+# Create distribution
 aws cloudfront create-distribution `
-  --origin-domain-name $bucketName.s3.amazonaws.com `
+  --origin-domain-name "$bucketName.s3.amazonaws.com" `
   --default-root-object index.html
-
-# Note the DomainName from the output
-```
-
-Create CloudFront config file `cf-config.json`:
-
-```json
-{
-  "CallerReference": "inventory-frontend-2024",
-  "Origins": {
-    "Quantity": 1,
-    "Items": [
-      {
-        "Id": "S3-inventory-frontend",
-        "DomainName": "YOUR_BUCKET_NAME.s3.amazonaws.com",
-        "S3OriginConfig": {
-          "OriginAccessIdentity": ""
-        }
-      }
-    ]
-  },
-  "DefaultCacheBehavior": {
-    "TargetOriginId": "S3-inventory-frontend",
-    "ViewerProtocolPolicy": "redirect-to-https",
-    "AllowedMethods": {
-      "Quantity": 2,
-      "Items": ["GET", "HEAD"],
-      "CachedMethods": {
-        "Quantity": 2,
-        "Items": ["GET", "HEAD"]
-      }
-    },
-    "ForwardedValues": {
-      "QueryString": false,
-      "Cookies": {
-        "Forward": "none"
-      }
-    },
-    "MinTTL": 0,
-    "DefaultTTL": 86400,
-    "MaxTTL": 31536000
-  },
-  "Enabled": true,
-  "Comment": "Inventory Frontend Distribution"
-}
 ```
 
 ### Step 5: Update CORS
@@ -193,15 +187,13 @@ Update backend CORS to include CloudFront domain:
 ```powershell
 cd backend
 # Edit Program.cs to add CloudFront domain
-# Redeploy
-eb deploy
+# Rebuild and push Docker image
+# Pull and restart container on EC2
 ```
 
 ## RDS Database Setup
 
 ### Create PostgreSQL RDS Instance
-
-If not created with EB:
 
 ```powershell
 aws rds create-db-instance `
@@ -214,29 +206,35 @@ aws rds create-db-instance `
   --storage-type gp2 `
   --no-multi-az `
   --vpc-security-group-ids sg-xxxxxxxx `
-  --db-subnet-group-name default `
-  --backup-retention-period 7 `
+  --publicly-accessible `
   --port 5432
 ```
 
+**Important Security Group Configuration:**
+1. Go to the Security Group used by your RDS instance.
+2. Add an Inbound Rule:
+   - **Type:** PostgreSQL
+   - **Source:** Custom -> Select the Security Group ID of your EC2 instance (e.g., `sg-yyyyyy`).
+   - This allows the EC2 instance to talk to the database securely.
+
 ### Run Migrations
+
+You can run migrations from your local machine if the RDS is publicly accessible (restrict IP in SG), or run them from the EC2 instance.
 
 ```powershell
 cd backend
-
-# Update connection string in appsettings.json
-# Run migrations
+# Update connection string in appsettings.json temporarily
 dotnet ef database update
 ```
 
 ## Continuous Deployment
 
-### GitHub Actions (Optional)
+### GitHub Actions (EC2 Deployment)
 
 Create `.github/workflows/deploy.yml`:
 
 ```yaml
-name: Deploy to AWS
+name: Deploy to AWS EC2
 
 on:
   push:
@@ -248,26 +246,42 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          dotnet-version: 9.0.x
-      
-      - name: Publish
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: inventory-api
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           cd backend
-          dotnet publish -c Release -o publish
-      
-      - name: Deploy to EB
-        uses: einaregilsson/beanstalk-deploy@v20
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
         with:
-          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          application_name: inventory-api
-          environment_name: inventory-api-prod
-          version_label: ${{ github.sha }}
-          region: us-east-1
-          deployment_package: backend/publish.zip
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            docker pull ${{ steps.login-ecr.outputs.registry }}/inventory-api:latest
+            docker stop inventory-api || true
+            docker rm inventory-api || true
+            docker run -d -p 80:8080 --name inventory-api --restart always \
+              -e ASPNETCORE_ENVIRONMENT=Production \
+              -e ConnectionStrings__DefaultConnection="${{ secrets.DB_CONNECTION_STRING }}" \
+              ${{ steps.login-ecr.outputs.registry }}/inventory-api:latest
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -299,61 +313,46 @@ jobs:
 
 ### CloudWatch Logs
 
-```powershell
-# View EB logs
-eb logs
+To send Docker logs to CloudWatch, you need to configure the `awslogs` log driver on the EC2 instance.
 
-# Stream logs
-eb logs --stream
-```
+1. Attach `CloudWatchAgentServerPolicy` to your EC2 IAM Role.
+2. Run container with logging options:
 
-### Set up CloudWatch Alarms
-
-```powershell
-# High CPU alarm
-aws cloudwatch put-metric-alarm `
-  --alarm-name inventory-api-high-cpu `
-  --alarm-description "Alert when CPU exceeds 80%" `
-  --metric-name CPUUtilization `
-  --namespace AWS/EC2 `
-  --statistic Average `
-  --period 300 `
-  --threshold 80 `
-  --comparison-operator GreaterThanThreshold
+```bash
+docker run -d \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=us-east-1 \
+  --log-opt awslogs-group=/ec2/inventory-api \
+  --log-opt awslogs-create-group=true \
+  ... (other options)
 ```
 
 ## Cost Optimization
 
-- **Use Single Instance Type:** The `--single` flag in `eb create` avoids creating an Application Load Balancer (ALB), which can be costly if the free tier limit (750 hours/month) is exceeded.
-- **Instance Types:** Use `t3.micro` for EC2 and `db.t3.micro` for RDS (Free Tier eligible).
-- **Database:** Ensure `Multi-AZ` is disabled for development databases to avoid doubling costs.
-- **Storage:** Clean up old EB application versions and unused S3 buckets.
-- **Scheduling:** Schedule non-production environments to stop during off-hours using AWS Instance Scheduler or simple Lambda scripts.
+- **EC2 Instance:** `t3.micro` is Free Tier eligible (750 hours/month).
+- **RDS:** `db.t3.micro` is Free Tier eligible.
+- **Stop Instances:** Stop your EC2 and RDS instances when not in use to save credits/money.
+  - EC2: `aws ec2 stop-instances --instance-ids i-xxxxxx`
+  - RDS: `aws rds stop-db-instance --db-instance-identifier inventory-db`
 
 ## Security Best Practices
 
-1. Enable HTTPS/SSL certificates
-2. Use VPC for RDS isolation
-3. Enable AWS WAF on CloudFront
-4. Rotate credentials regularly
-5. Enable CloudTrail for auditing
-6. Use IAM roles instead of access keys where possible
-7. Enable S3 bucket encryption
+1. **Security Groups:** Restrict SSH (port 22) to your IP only. Restrict Database (port 5432) to the EC2 Security Group only.
+2. **IAM Roles:** Never store AWS credentials on the EC2 instance. Use IAM Roles.
+3. **Secrets:** Pass sensitive data (DB passwords) as environment variables, do not hardcode them.
+4. **HTTPS:** For production, set up a Load Balancer (ALB) with ACM Certificate or use Let's Encrypt on the EC2 instance (using Nginx reverse proxy) to enable HTTPS.
 
 ## Troubleshooting
 
-### Backend won't start
-```powershell
-eb logs
-# Check for connection string errors
-# Verify security groups allow database connections
-```
+### Cannot connect via SSH
+- Check Security Group allows port 22 from your IP.
+- Ensure you are using the correct `.pem` key file with correct permissions (`chmod 400 key.pem`).
 
-### CORS errors
-- Ensure backend CORS includes frontend domain
-- Check CloudFront is forwarding headers correctly
+### Container fails to start
+- Check logs: `docker logs inventory-api`
+- Verify environment variables (Connection Strings).
 
-### Database connection errors
-- Verify security group rules
-- Check connection string format
-- Ensure RDS is in same VPC as EB environment
+### Frontend cannot talk to Backend
+- Check Browser Console (F12) for CORS errors.
+- Ensure EC2 Security Group allows port 80 (HTTP) from the internet.
+- Verify `VITE_API_URL` points to the correct EC2 Public IP/DNS.
